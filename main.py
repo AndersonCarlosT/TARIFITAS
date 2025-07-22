@@ -18,42 +18,50 @@ escenarios = {
     "50% punta / 50% fuera de punta": (0.5, 0.5),
 }
 
-def calcular_bt5b(consumo, df_tarifa):
-    if consumo <= 30:
-        fijo = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
-        energia = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'] == 'Cargo por Energía Activa')]['PRECIO'].values[0]
-        total = fijo + (consumo * energia / 100)
-    elif consumo <= 140:
-        fijo = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
-        primeros_30 = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Primeros 30'))]['PRECIO'].values[0]
-        exceso = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Exceso'))]['PRECIO'].values[0]
-        total = fijo + primeros_30 + ((consumo - 30) * exceso / 100)
-    else:
-        fijo = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
-        energia = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'].str.contains('Energía Activa'))]['PRECIO'].values[0]
-        total = fijo + (consumo * energia / 100)
-    return total
-
 def calcular_tarifa_puntual(consumo, df_tarifa, porcentaje_punta, porcentaje_fuera):
+    fijo = df_tarifa[df_tarifa['CARGO'].str.contains('Fijo')]['PRECIO'].values[0]
+    
     if consumo <= 30:
-        fijo = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
-        punta = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'].str.contains('Punta'))]['PRECIO'].values[0]
-        fuera = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'].str.contains('Fuera'))]['PRECIO'].values[0]
-        total = fijo + (consumo * ((porcentaje_punta * punta) + (porcentaje_fuera * fuera)) / 100)
+        energia = df_tarifa[df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h']
+        if 'Punta' in energia['CARGO'].values[0]:
+            precio_punta = energia[energia['CARGO'].str.contains('Punta')]['PRECIO'].values[0]
+            precio_fuera = energia[energia['CARGO'].str.contains('Fuera de Punta')]['PRECIO'].values[0]
+            total = fijo + consumo * (precio_punta * porcentaje_punta + precio_fuera * porcentaje_fuera) / 100
+        elif 'Media' in energia['CARGO'].values[0]:  # BT5I
+            media = energia[energia['CARGO'].str.contains('Media')]['PRECIO'].values[0]
+            base = energia[energia['CARGO'].str.contains('Base')]['PRECIO'].values[0]
+            total = fijo + consumo * ((media + base)/2)  * porcentaje_fuera / 100 + consumo * energia[energia['CARGO'].str.contains('Punta')]['PRECIO'].values[0] * porcentaje_punta / 100
     elif consumo <= 140:
-        fijo = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
-        punta_30 = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Punta - Primeros'))]['PRECIO'].values[0]
-        fuera_30 = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Fuera de Punta - Primeros'))]['PRECIO'].values[0]
-        punta_exceso = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Punta - Exceso'))]['PRECIO'].values[0]
-        fuera_exceso = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Fuera de Punta - Exceso'))]['PRECIO'].values[0]
-        total = fijo + (30 * ((porcentaje_punta * punta_30) + (porcentaje_fuera * fuera_30)) / 100) + \
-                ((consumo - 30) * ((porcentaje_punta * punta_exceso) + (porcentaje_fuera * fuera_exceso)) / 100)
+        energia = df_tarifa[df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h']
+        if 'Punta' in energia['CARGO'].values[0] and 'Fuera de Punta' in energia['CARGO'].values[1]:
+            pta_30 = energia[energia['CARGO'].str.contains('Punta - Primeros')]['PRECIO'].values[0]
+            fdp_30 = energia[energia['CARGO'].str.contains('Fuera de Punta - Primeros')]['PRECIO'].values[0]
+            pta_exc = energia[energia['CARGO'].str.contains('Punta - Exceso')]['PRECIO'].values[0]
+            fdp_exc = energia[energia['CARGO'].str.contains('Fuera de Punta - Exceso')]['PRECIO'].values[0]
+            total = fijo + 30 * (pta_30 * porcentaje_punta + fdp_30 * porcentaje_fuera) / 100 + (consumo - 30) * (pta_exc * porcentaje_punta + fdp_exc * porcentaje_fuera) / 100
+        elif 'Media' in energia['CARGO'].values[0]:  # BT5I
+            media_30 = energia[energia['CARGO'].str.contains('Media - Primeros')]['PRECIO'].values[0]
+            base_30 = energia[energia['CARGO'].str.contains('Base - Primeros')]['PRECIO'].values[0]
+            media_exc = energia[energia['CARGO'].str.contains('Media - Exceso')]['PRECIO'].values[0]
+            base_exc = energia[energia['CARGO'].str.contains('Base - Exceso')]['PRECIO'].values[0]
+            punta_30 = energia[energia['CARGO'].str.contains('Punta - Primeros')]['PRECIO'].values[0]
+            punta_exc = energia[energia['CARGO'].str.contains('Punta - Exceso')]['PRECIO'].values[0]
+            
+            total = fijo + 30 * ( (media_30 + base_30)/2 * porcentaje_fuera + punta_30 * porcentaje_punta) / 100 + \
+                    (consumo - 30) * ( (media_exc + base_exc)/2 * porcentaje_fuera + punta_exc * porcentaje_punta) / 100
     else:
-        fijo = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
-        punta = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'].str.contains('Punta'))]['PRECIO'].values[0]
-        fuera = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'].str.contains('Fuera'))]['PRECIO'].values[0]
-        total = fijo + (consumo * ((porcentaje_punta * punta) + (porcentaje_fuera * fuera)) / 100)
-    return total
+        energia = df_tarifa[df_tarifa['CONSUMO'].str.contains('mayor a 140')]
+        if 'Punta' in energia['CARGO'].values[0] and 'Fuera de Punta' in energia['CARGO'].values[1]:
+            pta = energia[energia['CARGO'].str.contains('Punta')]['PRECIO'].values[0]
+            fdp = energia[energia['CARGO'].str.contains('Fuera de Punta')]['PRECIO'].values[0]
+            total = fijo + consumo * (pta * porcentaje_punta + fdp * porcentaje_fuera) / 100
+        elif 'Media' in energia['CARGO'].values[0]:  # BT5I
+            media = energia[energia['CARGO'].str.contains('Media')]['PRECIO'].values[0]
+            base = energia[energia['CARGO'].str.contains('Base')]['PRECIO'].values[0]
+            punta = energia[energia['CARGO'].str.contains('Punta')]['PRECIO'].values[0]
+            total = fijo + consumo * ((media + base)/2 * porcentaje_fuera + punta * porcentaje_punta) / 100
+    
+    return round(total, 2)
 
 # Generar la tabla comparativa
 tabla_resultados = []
