@@ -1,87 +1,78 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import matplotlib.pyplot as plt
 
-# Cargar datos
-df_tarifas = pd.read_excel("datos_base/tarifas_bt5.xlsx")
+st.set_page_config(page_title="Comparativa BT5B - BT5F - BT5I", layout="centered")
 
-st.set_page_config(page_title="Comparador BT5", layout="wide")
-st.title("🔌 Comparador Tarifas BT5B, BT5F y BT5I")
+# Leer el Excel desde GitHub (o local si corres en dev)
+df = pd.read_excel("datos_base/tarifas_bt5.xlsx")
 
-# Ingreso de consumo
-consumo_kwh = st.number_input("🔢 Ingresa el consumo en kWh:", min_value=1, value=150)
+# Input de usuario
+consumo_kwh = st.number_input("🔢 Ingresa tu consumo mensual en kWh:", min_value=1, value=150)
 
-# Filtrar datos de tarifas residenciales (puedes modificar a no residencial si prefieres)
-df_residencial = df_tarifas[df_tarifas['USUARIO'].str.contains("Residencial", na=False)]
+# Escenarios de Punta / Fuera de Punta
+escenarios = {
+    "100% fuera de punta": (0, 1),
+    "20% punta / 80% fuera de punta": (0.2, 0.8),
+    "40% punta / 60% fuera de punta": (0.4, 0.6),
+    "50% punta / 50% fuera de punta": (0.5, 0.5),
+}
 
-# Función para calcular el total por tarifa
-def calcular_total(tarifa, consumo):
-    df_tarifa = df_residencial[df_residencial['TARIFA'] == tarifa]
-    fijo = df_tarifa[df_tarifa['CARGO'].str.contains("Fijo")]['PRECIO'].values[0]
-
-    if "BT5B" in tarifa:
-        # BT5B - Sin discriminación horaria
-        if consumo <= 30:
-            energia = (df_tarifa[df_tarifa['CARGO'].str.contains("Energía Activa")]['PRECIO'].values[0] * consumo) / 100
-        elif consumo <= 140:
-            primer_tramo = 30
-            exceso = consumo - 30
-            energia_30 = df_tarifa[df_tarifa['CARGO'].str.contains("Primeros 30")]['PRECIO'].values[0]
-            energia_exceso = df_tarifa[df_tarifa['CARGO'].str.contains("Exceso de 30")]['PRECIO'].values[0]
-            energia = (energia_30 + (exceso * energia_exceso) / 100)
-        else:
-            energia = (df_tarifa[df_tarifa['CARGO'].str.contains("Energía Activa")]['PRECIO'].values[0] * consumo) / 100
-
+def calcular_bt5b(consumo, df_tarifa):
+    if consumo <= 30:
+        fijo = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
+        energia = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'] == 'Cargo por Energía Activa')]['PRECIO'].values[0]
+        total = fijo + (consumo * energia / 100)
+    elif consumo <= 140:
+        fijo = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
+        primeros_30 = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Primeros 30'))]['PRECIO'].values[0]
+        exceso = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Exceso'))]['PRECIO'].values[0]
+        total = fijo + primeros_30 + ((consumo - 30) * exceso / 100)
     else:
-        # BT5F y BT5I - Con discriminación horaria (Punta y Fuera de Punta)
-        if consumo <= 30:
-            energia_punta = df_tarifa[df_tarifa['CARGO'].str.contains("Punta")]['PRECIO'].values[0]
-            energia_fp = df_tarifa[df_tarifa['CARGO'].str.contains("Fuera de Punta")]['PRECIO'].values[0]
-            energia = ((consumo * 0.4) * energia_punta + (consumo * 0.6) * energia_fp) / 100
+        fijo = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
+        energia = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'].str.contains('Energía Activa'))]['PRECIO'].values[0]
+        total = fijo + (consumo * energia / 100)
+    return total
 
-        elif consumo <= 140:
-            primer_tramo = 30
-            exceso = consumo - 30
+def calcular_tarifa_puntual(consumo, df_tarifa, porcentaje_punta, porcentaje_fuera):
+    if consumo <= 30:
+        fijo = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
+        punta = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'].str.contains('Punta'))]['PRECIO'].values[0]
+        fuera = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 0 - 30 kW.h') & (df_tarifa['CARGO'].str.contains('Fuera'))]['PRECIO'].values[0]
+        total = fijo + (consumo * ((porcentaje_punta * punta) + (porcentaje_fuera * fuera)) / 100)
+    elif consumo <= 140:
+        fijo = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
+        punta_30 = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Punta - Primeros'))]['PRECIO'].values[0]
+        fuera_30 = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Fuera de Punta - Primeros'))]['PRECIO'].values[0]
+        punta_exceso = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Punta - Exceso'))]['PRECIO'].values[0]
+        fuera_exceso = df_tarifa[(df_tarifa['CONSUMO'] == 'Consumo de 31 - 140 kW.h') & (df_tarifa['CARGO'].str.contains('Fuera de Punta - Exceso'))]['PRECIO'].values[0]
+        total = fijo + (30 * ((porcentaje_punta * punta_30) + (porcentaje_fuera * fuera_30)) / 100) + \
+                ((consumo - 30) * ((porcentaje_punta * punta_exceso) + (porcentaje_fuera * fuera_exceso)) / 100)
+    else:
+        fijo = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'] == 'Cargo Fijo Mensual')]['PRECIO'].values[0]
+        punta = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'].str.contains('Punta'))]['PRECIO'].values[0]
+        fuera = df_tarifa[(df_tarifa['CONSUMO'].str.contains('mayor a 140')) & (df_tarifa['CARGO'].str.contains('Fuera'))]['PRECIO'].values[0]
+        total = fijo + (consumo * ((porcentaje_punta * punta) + (porcentaje_fuera * fuera)) / 100)
+    return total
 
-            energia_punta_30 = df_tarifa[df_tarifa['CARGO'].str.contains("Punta - Primeros 30")]['PRECIO'].values[0]
-            energia_fp_30 = df_tarifa[df_tarifa['CARGO'].str.contains("Fuera de Punta - Primeros 30")]['PRECIO'].values[0]
+# Generar la tabla comparativa
+tabla_resultados = []
 
-            energia_punta_exceso = df_tarifa[df_tarifa['CARGO'].str.contains("Punta - Exceso")]['PRECIO'].values[0]
-            energia_fp_exceso = df_tarifa[df_tarifa['CARGO'].str.contains("Fuera de Punta - Exceso")]['PRECIO'].values[0]
-
-            energia = ((primer_tramo * 0.4) * energia_punta_30 + (primer_tramo * 0.6) * energia_fp_30 +
-                       (exceso * 0.4) * energia_punta_exceso + (exceso * 0.6) * energia_fp_exceso) / 100
-        else:
-            energia_punta = df_tarifa[df_tarifa['CARGO'].str.contains("Punta")]['PRECIO'].values[0]
-            energia_fp = df_tarifa[df_tarifa['CARGO'].str.contains("Fuera de Punta")]['PRECIO'].values[0]
-            energia = ((consumo * 0.4) * energia_punta + (consumo * 0.6) * energia_fp) / 100
-
-    return round(fijo + energia, 2)
-
-# Calcular para cada tarifa
-tarifas = ['TARIFA BT5B', 'TARIFA BT5F', 'TARIFA BT5I']
-resultados = []
-
-for t in tarifas:
-    total = calcular_total(t, consumo_kwh)
-    resultados.append({'Tarifa': t, 'Total S/': total})
-
-df_resultado = pd.DataFrame(resultados)
+for escenario, (p_punta, p_fuera) in escenarios.items():
+    bt5b = calcular_bt5b(consumo_kwh, df[df['TARIFA'] == 'TARIFA BT5B'])
+    bt5f = calcular_tarifa_puntual(consumo_kwh, df[df['TARIFA'] == 'TARIFA BT5F'], p_punta, p_fuera)
+    bt5i = calcular_tarifa_puntual(consumo_kwh, df[df['TARIFA'] == 'TARIFA BT5I'], p_punta, p_fuera)
+    tabla_resultados.append([escenario, round(bt5b,2), round(bt5f,2), round(bt5i,2)])
 
 # Mostrar tabla
-st.subheader("🧾 Comparativo de Facturación")
+df_resultado = pd.DataFrame(tabla_resultados, columns=["Escenario", "BT5B S/", "BT5F S/", "BT5I S/"])
 st.dataframe(df_resultado, use_container_width=True)
 
 # Gráfico de barras
-fig = px.bar(df_resultado, x='Tarifa', y='Total S/', color='Tarifa', text='Total S/',
-             title=f"Comparativo de Costo por {consumo_kwh} kWh",
-             color_discrete_sequence=px.colors.qualitative.Set2)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# Gráfico de pastel
-fig2 = px.pie(df_resultado, names='Tarifa', values='Total S/',
-              title="Distribución porcentual por tarifa",
-              color_discrete_sequence=px.colors.qualitative.Set2)
-
-st.plotly_chart(fig2, use_container_width=True)
+fig, ax = plt.subplots(figsize=(8,5))
+df_plot = df_resultado.set_index('Escenario')
+df_plot.plot(kind='bar', ax=ax)
+plt.ylabel("S/ Total")
+plt.title(f"Comparación de Tarifas para {consumo_kwh} kWh")
+plt.xticks(rotation=45)
+st.pyplot(fig)
