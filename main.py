@@ -69,7 +69,7 @@ def calcular_tarifa_puntual(consumo, df_tarifa, porcentaje_punta, porcentaje_fue
             total = fijo + 30 * ( (media_30 + base_30)/2 * porcentaje_fuera + punta_30 * porcentaje_punta) / 100 + \
                     (consumo - 30) * ( (media_exc + base_exc)/2 * porcentaje_fuera + punta_exc * porcentaje_punta) / 100
     else:
-        energia = df_tarifa[df_tarifa['CONSUMO'].str.contains('mayor a 140')]
+        energia = df_tarifa[df_tarifa['CONSUMO'].str.contains('mayor a 140', na=False)]
         if 'Punta' in energia['CARGO'].values[0] and 'Fuera de Punta' in energia['CARGO'].values[1]:
             pta = energia[energia['CARGO'].str.contains('Punta')]['PRECIO'].values[0]
             fdp = energia[energia['CARGO'].str.contains('Fuera de Punta')]['PRECIO'].values[0]
